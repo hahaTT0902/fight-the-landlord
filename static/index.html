@@ -195,23 +195,42 @@
         </div>
       </div>
 
-      <div class="msg-box">
-        <div class="msg-list scroll-bar" ref="msgBox">
-          <div class="msg-item" v-for="msg in msgList" :key="msg.id">
-            <span v-if="msg.type === 'USER'">
-              <span class="msg-item-time">[{{msg.time}}]</span>
-              <span style="color:red">{{msg.name}}</span> 说：{{msg.content}}
-            </span>
-            <span style="color:red;padding:15px 0" v-if="msg.type === 'SYS'">
-              <span class="msg-item-time">[{{msg.time}}] </span>系统消息：{{msg.content}}
-            </span>
+      <div class="msg-box" :class="{collapsed: chatCollapsed}">
+        <div class="msg-box-head">
+          <span class="msg-box-title">茶馆 · 闲话</span>
+          <button class="msg-box-toggle" type="button" @click="chatCollapsed = !chatCollapsed"
+            :title="chatCollapsed ? '展开聊天' : '收起聊天'">
+            <span v-if="chatCollapsed">▴</span><span v-else>▾</span>
+          </button>
+        </div>
+        <div class="msg-body">
+          <div class="msg-list scroll-bar" ref="msgBox">
+            <div class="msg-item"
+              v-for="msg in msgList" :key="msg.id"
+              :class="msg.type === 'SYS' ? 'msg-sys' : (msg.posId === posId ? 'msg-user msg-self' : 'msg-user msg-other')">
+              <template v-if="msg.type === 'SYS'">
+                <span class="msg-sys-stamp">系</span>
+                <span class="msg-sys-text">{{msg.content}}</span>
+              </template>
+              <template v-else>
+                <div class="msg-meta">
+                  <span class="msg-name">{{msg.name}}</span>
+                  <span class="msg-time">{{msg.time}}</span>
+                </div>
+                <div class="msg-bubble">{{msg.content}}</div>
+              </template>
+            </div>
+          </div>
+          <div class="msg-foot">
+            <input type="text" class="msg-input" ref="msgInput" placeholder="说点什么…" maxlength="120"
+              @keyup.enter="sendMessage(false)">
+            <select class="msg-quick" ref="msgSelect" @change="sendMessage($event)" title="选择快语">
+              <option value="" disabled selected>快语</option>
+              <option v-for="item in msgBox" :value="item">{{item}}</option>
+            </select>
+            <button class="msg-send" type="button" @click="sendMessage(false)">发送</button>
           </div>
         </div>
-        <input type="text" class="input msg-input" ref="msgInput" @keyup.enter="sendMessage(false)">
-        <select ref="msgSelect" class="input msg-input msg-select" style="width:15px;" @change="sendMessage($event)">
-          <option v-for="item in msgBox" :value="item">{{item}}</option>
-        </select>
-        <button class="msg-btn" @click="sendMessage(false)">发送</button>
       </div>
     </div>
 
@@ -263,6 +282,8 @@
             '不要吵了，专心玩游戏吧！',
           ],
           msgList: [],//聊天消息
+          chatCollapsed: false,//聊天面板收起态
+          _msgSeq: 0,//本地消息序号兜底，避免 :key 冲突
 
           where: 0,//0登录界面 1大厅 2房间,
           isAutoLogin: false,
@@ -569,16 +590,23 @@
 
           this.client.on('USER_MESSAGE', function (data) {
             var direct = this.getDirectionByPosId(data.posId);
-            var name = this.posState[direct].name;
+            var name = data.type === 'SYS' ? '系统' : (this.posState[direct] && this.posState[direct].name) || '游客';
             this.msgList.push({
               type: data.type,
-              id: data.id,
+              id: data.id != null ? data.id : ('local_' + (++this._msgSeq)),
               time: data.time,
               name: name,
+              posId: data.posId,
               content: data.msg
-            })
+            });
+            // 历史限长，避免 DOM 过大
+            if (this.msgList.length > 80) {
+              this.msgList.splice(0, this.msgList.length - 80);
+            }
             this.$nextTick(function () {
-              this.$refs.msgBox.scrollTop = this.$refs.msgBox.scrollHeight;
+              if (this.$refs.msgBox) {
+                this.$refs.msgBox.scrollTop = this.$refs.msgBox.scrollHeight;
+              }
             });
           }.bind(this));
 
@@ -801,11 +829,16 @@
         },
 
         sendMessage: function (e) {
-          var el = e ? e.target : this.$refs.msgInput;
-          var msg = el.value;
-          el.value = '';
+          var fromSelect = !!(e && e.target && e.target.tagName === 'SELECT');
+          var el = fromSelect ? e.target : this.$refs.msgInput;
+          var msg = (el && el.value || '').trim();
           if (msg) {
             this.client.emit('USER_MESSAGE', msg);
+          }
+          // 发完即清空，select 回归到默认提示项
+          if (el) { el.value = ''; }
+          if (!fromSelect && this.$refs.msgInput) {
+            this.$refs.msgInput.focus();
           }
         },
         quickJoin: function () {
