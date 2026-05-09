@@ -1,9 +1,10 @@
-# 雀阁 · 在线斗地主
+<img width="1707" height="1252" alt="49a703f667121b62a71198845b6efcd0" src="https://github.com/user-attachments/assets/257f1b76-2e29-439f-82b2-bad1ad583e2d" /># 雀阁 · 在线斗地主
 
 > **Fight the Landlord** — 一桌国风茶馆，三人对坐，落子如雀。
 > 基于 Node.js + Vue 2 + Socket.IO 的多人在线斗地主，支持 **真人对战 / AI 陪玩 / 观战 / 智囊推荐 / 国风音画**。
 
-![雀阁 · 入座](static/images/screenshots/login.png)
+![雀阁 · 入座](<img width="1707" height="1252" alt="49a703f667121b62a71198845b6efcd0" src="https://github.com/user-attachments/assets/82291c23-cd06-403e-ae73-86ac8cde61ea" />
+)
 
 ---
 
@@ -22,11 +23,9 @@
 
 ## 截图
 
-| 入座厅 | 牌桌 |
-| :---: | :---: |
-| ![登录](static/images/screenshots/login.png) | ![对局](static/images/screenshots/room.png) |
+<img width="1702" height="1255" alt="f2f1befc878f15cbbcc39238c5bf0546" src="https://github.com/user-attachments/assets/c0f47639-e6af-4997-acc0-a038c1d9f319" />
+<img width="1700" height="1257" alt="e2384b186038c64b40103a9f2db9d653" src="https://github.com/user-attachments/assets/87b166c5-42a3-408c-bd00-d52e17a57634" />
 
-> 截图存放于 `static/images/screenshots/`。如需更新，把新图覆盖同名文件即可。
 
 ---
 
