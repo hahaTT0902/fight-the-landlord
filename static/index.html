@@ -65,9 +65,9 @@
           <button class="btn btn-call" @click="callScore(0)">不叫</button>
         </template>
         <template v-if="roomState.state === 2">
-          <button class="btn btn-jade" @click="passCards" v-if="roomState.ctxCard.ctxPos !== roomState.ctxPos">不  出</button>
-          <button class="btn btn-ghost btn-ai" type="button" @click="aiSuggest" title="智囊推荐">智 囊</button>
           <button class="btn btn-vermilion" @click="playCards">出  牌</button>
+          <button class="btn btn-ghost btn-ai" type="button" @click="aiSuggest" title="智囊推荐">智 囊</button>
+          <button class="btn btn-jade" @click="passCards" v-if="roomState.ctxCard.ctxPos !== roomState.ctxPos">不  出</button>
         </template>
 
       </div>
@@ -298,7 +298,6 @@
             '快点吧，我等到花儿也谢了！',
             '不要走，决战到天亮。',
             '和你合作真是太愉快了',
-            '你是GG还是MM？',
             '不要吵了，专心玩游戏吧！',
           ],
           msgList: [],//聊天消息
