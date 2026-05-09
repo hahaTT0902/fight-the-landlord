@@ -1394,3 +1394,57 @@ button.btn-ghost {
 
 /* 观战时房间内若需轻量提示 */
 .room-spec .btn-prepare { display: none !important; }
+
+/* ========== AI 对手按钮 / 头像 ========== */
+.bot-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 200px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  z-index: 6;
+}
+.btn-bot {
+  padding: 8px 22px;
+  font-family: var(--font-brush, "Ma Shan Zheng", var(--font-serif));
+  letter-spacing: 0.3em;
+  font-size: 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform .2s var(--ease-soft), box-shadow .2s var(--ease-soft);
+}
+.btn-bot-add {
+  background: linear-gradient(135deg, #2d745a, #1c503e);
+  color: #f6e6c8;
+  border: 1px solid var(--gold-soft, #d0a85c);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4), 0 0 18px rgba(110,178,140,0.25);
+}
+.btn-bot-add:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.5), 0 0 26px rgba(110,178,140,0.55); }
+.btn-bot-remove {
+  background: linear-gradient(135deg, rgba(120,38,42,0.85), rgba(80,20,24,0.85));
+  color: #f6e6c8;
+  border: 1px solid var(--vermilion-soft, #c66454);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.btn-bot-remove:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }
+
+/* AI 头像角标（使用 .bot-tag 子节点，避免 ::after 与玉色光晕冲突） */
+.bot-tag {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  width: 26px; height: 26px; line-height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2d745a, #1c503e);
+  border: 1px solid #f6e6c8;
+  color: #f6e6c8;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  z-index: 3;
+  pointer-events: none;
+}
+.player-photo-bot { border-color: #6eb28c !important; }

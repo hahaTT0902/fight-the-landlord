@@ -65,14 +65,20 @@
           <button class="btn btn-call" @click="callScore(0)">不叫</button>
         </template>
         <template v-if="roomState.state === 2">
+          <button class="btn btn-jade" @click="passCards" v-if="roomState.ctxCard.ctxPos !== roomState.ctxPos">不  出</button>
           <button class="btn btn-ghost btn-ai" type="button" @click="aiSuggest" title="智囊推荐">智 囊</button>
           <button class="btn btn-vermilion" @click="playCards">出  牌</button>
-          <button class="btn btn-jade" @click="passCards" v-if="roomState.ctxCard.ctxPos !== roomState.ctxPos">不  出</button>
         </template>
 
       </div>
 
       <button v-if="!isSpec && posState.self.state < 2" @click="prepare" class="btn-prepare">准 备</button>
+
+      <!-- 等待区操作：召唤AI / 请走AI -->
+      <div class="bot-bar" v-if="!isSpec && (roomState.state === 0 || roomState.state === 3)">
+        <button v-if="hasEmptySeat" class="btn-bot btn-bot-add" type="button" @click="addBots">召 唤 A I 对 手</button>
+        <button v-if="hasBotSeat" class="btn-bot btn-bot-remove" type="button" @click="removeBots">请 走 A I</button>
+      </div>
 
       <div v-if="isSpec && roomState.state === 0" class="spec-tip">本桌正在准备中，待开局后可观战。</div>
 
@@ -175,7 +181,9 @@
       <div class="players">
         <div class="screen-center">
           <div class="player-wrapper player-left" v-if="posState.left.state">
-            <div class="player-photo" :class="{'player-photo-king':posState.left.isDizhu}"></div>
+            <div class="player-photo" :class="{'player-photo-king':posState.left.isDizhu, 'player-photo-bot': posState.left.isBot}">
+              <span class="bot-tag" v-if="posState.left.isBot">AI</span>
+            </div>
             <div class="player-name text-center">{{posState.left.name}}</div>
             <div class="text-center player-status" v-if="posState.left.state === 2 && (roomState.state === 0 || roomState.state === 3)">准备</div>
             <!-- <div class="text-center" v-if="posState.left.isDizhu">
@@ -183,7 +191,9 @@
           </div> -->
           </div>
           <div class="player-wrapper player-right" v-if="posState.right.state">
-            <div class="player-photo" :class="{'player-photo-king':posState.right.isDizhu}"></div>
+            <div class="player-photo" :class="{'player-photo-king':posState.right.isDizhu, 'player-photo-bot': posState.right.isBot}">
+              <span class="bot-tag" v-if="posState.right.isBot">AI</span>
+            </div>
             <div class="player-name text-center">{{posState.right.name}}</div>
             <div class="text-center player-status" v-if="posState.right.state === 2 && (roomState.state === 0 || roomState.state === 3)">准备</div>
             <!-- <div class="text-center" v-if="posState.right.isDizhu">
@@ -331,6 +341,7 @@
               ctxCards: [],
               isPass: false,
               isDizhu: false,
+              isBot: false,
               callScore: -1,
               name: '游客'
             },
@@ -340,6 +351,7 @@
               ctxCards: [],
               isPass: false,
               isDizhu: false,
+              isBot: false,
               callScore: -1,
               name: '游客'
             },
@@ -349,6 +361,7 @@
               ctxCards: [],
               isPass: false,
               isDizhu: false,
+              isBot: false,
               callScore: -1,
               name: ''
             }
@@ -408,7 +421,7 @@
             this.posId = data.posId;
             this.deskId = data.deskId;
             data.posInfos.forEach(function (pos) {
-              this.updatePosStatus(pos.posId, pos.state, pos.userName);
+              this.updatePosStatus(pos.posId, pos.state, pos.userName, !!pos.isBot);
             }.bind(this))
             this.posState.self.isDizhu = false;
             //this.msgList = [];
@@ -438,7 +451,7 @@
             this.posId = 'spec';
             // 初始化座位状态名字
             (data.positions || []).forEach(function (p) {
-              this.updatePosStatus(p.posId, p.state, p.userName);
+              this.updatePosStatus(p.posId, p.state, p.userName, !!p.isBot);
             }.bind(this));
             this.posState.self.isDizhu = false;
             this.$nextTick(function () {
@@ -463,7 +476,7 @@
 
           this.client.on('POS_STATUS_CHANGE', function (data) {
             var direct = this.getDirectionByPosId(data.posId);
-            this.updatePosStatus(data.posId, data.state, data.userName);
+            this.updatePosStatus(data.posId, data.state, data.userName, data.isBot);
           }.bind(this));
 
           this.client.on('POS_STATUS_RESET', function (data) {
@@ -789,11 +802,18 @@
           }
           return mapping[pivot] && mapping[pivot][posId];
         },
-        updatePosStatus: function (posId, state, name) {
+        updatePosStatus: function (posId, state, name, isBot) {
           var direct = this.getDirectionByPosId(posId);
+          if (!direct) return;
           this.posState[direct].state = state;
-          if (name) {
-            this.posState[direct].name = name;
+          if (name !== undefined && name !== null) {
+            this.posState[direct].name = name || '游客';
+          }
+          // state 为 0 时清掉 isBot；否则按传入值更新（缺省保持原值）
+          if (state === 0) {
+            this.posState[direct].isBot = false;
+          } else if (typeof isBot === 'boolean') {
+            this.posState[direct].isBot = isBot;
           }
           this.posState[direct].isDizhu = false;
           this.startTimer(false);
@@ -831,6 +851,9 @@
           this.posState.left.ctxCards = [];
           this.posState.right.ctxCards = [];
           this.posState.self.ctxCards = [];
+          this.posState.left.isBot = false;
+          this.posState.right.isBot = false;
+          this.posState.self.isBot = false;
         },
         getSelectdCards: function () {
           return this.posState.self.cards.filter(function (card) {
@@ -929,6 +952,18 @@
           (desk.positions || []).forEach(function (p) { if (p.state > 0) n++; });
           return n;
         },
+        // 召唤 AI 对手
+        addBots: function () {
+          if (this.isSpec) return;
+          this.client.emit('ADD_BOTS');
+          window.FX && FX.beep('chip');
+        },
+        // 请走 AI
+        removeBots: function () {
+          if (this.isSpec) return;
+          this.client.emit('REMOVE_BOTS');
+          window.FX && FX.beep('chip');
+        },
         // 观战
         spectate: function (deskId) {
           layer.load({ type: 3 });
@@ -982,7 +1017,16 @@
         }
       },
       computed: {
-        // 占位（保留扩展）
+        // 是否还有空位（仅当玩家自己已入座时计算）
+        hasEmptySeat: function () {
+          if (this.isSpec) return false;
+          if (this.posState.self.state === 0) return false;
+          return (this.posState.left.state === 0) || (this.posState.right.state === 0);
+        },
+        // 是否有 AI 在场
+        hasBotSeat: function () {
+          return this.posState.left.isBot || this.posState.right.isBot;
+        }
       }
     })
 

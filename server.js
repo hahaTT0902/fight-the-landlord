@@ -7,6 +7,8 @@ app.get('/', function (req, res) {
   res.sendFile(`${__dirname}/index.html`);
 });
 const Game = require('./game.js');
+const AISuggest = require('./static/js/ai-suggest.js').AISuggest;
+const BOT_NAMES = ['玉狐', '青龙', '白鹭', '墨鸢', '朱雀', '碧波', '苍髯'];
 function createDeskList(n) {
   n = n || 50;
   const ret = [];
@@ -46,6 +48,7 @@ function GameServer(port) {
   this.port = port;
   this.desks = createDeskList(20);
   this.gameDatas = {};
+  this.botTimers = {};
 }
 const proto = {
   // JWT secret used to validate tokens issued by Discuz (or other auth provider)
@@ -200,6 +203,166 @@ const proto = {
     const cards = game.start().getCards();
     this.broadCastRoom('GAME_START', deskId, { cards });
     this.broadCastRoom('CTX_USER_CHANGE', deskId, { ctxPos: game.getContextPosId(), ctxScore: game.getContextScore(), timeout: 15 });
+    this.scheduleBotAction(deskId);
+  },
+  // ===== AI 机器人 =====
+  hasHumanAtDesk(deskId) {
+    return this.clients.some(c => c.deskId === deskId && c.posId !== 'spec');
+  },
+  seatBot(deskId, posId) {
+    const desk = this.getDesk(deskId);
+    if (!desk) return;
+    const pos = this.getPosition(desk, posId);
+    if (!pos) return;
+    const used = desk.positions.map(x => x.userName).filter(Boolean);
+    const name = (BOT_NAMES.find(n => !used.includes(n)) || '清客') + ' 〔AI〕';
+    pos.state = 2; pos.userName = name; pos.isBot = true;
+    this.broadCastRoom('POS_STATUS_CHANGE', deskId, { posId, state: 2, userName: name, isBot: true });
+    this.broadCastHouse('STATUS_CHANGE', { deskId, posId, state: 2 });
+  },
+  removeBot(deskId, posId) {
+    const desk = this.getDesk(deskId);
+    if (!desk) return null;
+    const pos = this.getPosition(desk, posId);
+    if (!pos || !pos.isBot) return null;
+    const name = pos.userName;
+    pos.state = 0; pos.userName = ''; pos.isBot = false;
+    this.broadCastRoom('POS_STATUS_CHANGE', deskId, { posId, state: 0, userName: '' });
+    this.broadCastHouse('STATUS_CHANGE', { deskId, posId, state: 0 });
+    return name;
+  },
+  removeAllBots(deskId) {
+    const desk = this.getDesk(deskId);
+    if (!desk) return;
+    desk.positions.forEach(p => { if (p.isBot) this.removeBot(deskId, p.posId); });
+  },
+  isBotPos(deskId, posId) {
+    const desk = this.getDesk(deskId);
+    if (!desk) return false;
+    const p = this.getPosition(desk, posId);
+    return !!(p && p.isBot);
+  },
+  rePrepareBots(deskId) {
+    const desk = this.getDesk(deskId);
+    if (!desk) return;
+    desk.positions.forEach(p => {
+      if (p.isBot) {
+        p.state = 2;
+        this.broadCastRoom('POS_STATUS_CHANGE', deskId, { posId: p.posId, state: 2, userName: p.userName });
+      }
+    });
+    // 若房间内全员（含真人）已就绪则自动开新一局
+    if (this.checkPrepareAll(deskId)) {
+      this.startGame(deskId);
+    }
+  },
+  clearBotTimer(deskId) {
+    if (this.botTimers[deskId]) { clearTimeout(this.botTimers[deskId]); this.botTimers[deskId] = null; }
+  },
+  scheduleBotAction(deskId) {
+    this.clearBotTimer(deskId);
+    const game = this.gameDatas[deskId];
+    if (!game) return;
+    const status = game.getStatus();
+    if (status !== 1 && status !== 2) return;
+    const posId = game.getContextPosId();
+    if (!this.isBotPos(deskId, posId)) return;
+    const delay = 900 + Math.floor(Math.random() * 1100);
+    this.botTimers[deskId] = setTimeout(() => {
+      this.botTimers[deskId] = null;
+      if (!this.isBotPos(deskId, posId)) return;
+      const g = this.gameDatas[deskId];
+      if (!g) return;
+      if (g.getStatus() === 1 && g.getContextPosId() === posId) {
+        this.botCallScore(deskId, posId);
+      } else if (g.getStatus() === 2 && g.getContextPosId() === posId) {
+        this.botPlayCard(deskId, posId);
+      }
+    }, delay);
+  },
+  botCallScore(deskId, posId) {
+    const game = this.gameDatas[deskId];
+    if (!game) return;
+    const ctxScore = game.getContextScore() || [];
+    let score = 0;
+    if (Math.random() < 0.65 && ctxScore.length) {
+      score = ctxScore[Math.floor(Math.random() * ctxScore.length)];
+    }
+    const status = game.next(posId, score).getStatus();
+    if (status == 1) {
+      this.broadCastRoom('CTX_USER_CHANGE', deskId, {
+        ctxPos: game.getContextPosId(),
+        ctxScore: game.getContextScore(),
+        calledScores: game.getCalledScores(),
+        timeout: 15
+      });
+      this.scheduleBotAction(deskId);
+    }
+    if (status == 2) {
+      const topCards = game.getTopCards();
+      const dizhuPosId = game.getDiZhuPosId();
+      this.broadCastRoom('SHOW_TOP_CARD', deskId, { topCards, dizhuPosId, timeout: 15 });
+      this.broadCastRoom('CTX_PLAY_CHANGE', deskId, {
+        ctxData: { len: 0, key: '', type: '', cards: [], posId: dizhuPosId },
+        posId: dizhuPosId, timeout: 30, isPass: false
+      });
+      this.scheduleBotAction(deskId);
+    }
+    if (status == 4) {
+      this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId, msg: '本局无人叫分，重新发牌', id: guid(), time: time() });
+      this.startGame(deskId);
+    }
+  },
+  botPlayCard(deskId, posId) {
+    const game = this.gameDatas[deskId];
+    if (!game) return;
+    const handRaw = (game.getCardsByPosId(posId) || []).slice(0);
+    const hand = handRaw.map(c => ({ value: c.value, type: c.type }));
+    const last = game.lastCardInfo || {};
+    const lastInfo = (last.posId === posId || !last.len) ? { len: 0, ctxPos: 'self' } : {
+      len: last.len, key: last.key, type: last.type, ctxPos: 'other'
+    };
+    let picks = [];
+    try { picks = (AISuggest.suggest(hand, lastInfo)) || []; } catch (e) { picks = []; }
+    // 解析为真实牌实例（按下标占用避免重复）
+    const used = new Set();
+    let data = [];
+    picks.forEach(p => {
+      for (let i = 0; i < handRaw.length; i++) {
+        if (used.has(i)) continue;
+        const c = handRaw[i];
+        if (c.value === p.value && c.type === p.type) {
+          data.push(c); used.add(i); break;
+        }
+      }
+    });
+    let isPass = !data.length;
+    let ret = isPass ? { status: true, key: '', type: '' } : game.validate(posId, data);
+    if (!ret.status && !isPass) {
+      // 兜底：若可不出则不出，否则随便出最小一张
+      if (last.posId !== posId && last.len > 0) {
+        data = []; isPass = true; ret = { status: true, key: '', type: '' };
+      } else {
+        data = [handRaw[0]]; isPass = false; ret = game.validate(posId, data);
+        if (!ret.status) { data = []; isPass = true; ret = { status: true, key: '', type: '' }; }
+      }
+    }
+    game.next(posId, data);
+    this.broadCastRoom('CTX_PLAY_CHANGE', deskId, {
+      ctxData: { len: data.length, key: ret.key, type: ret.type, cards: data, posId },
+      posId: game.getContextPosId(), timeout: 15, isPass
+    });
+    if (game.getStatus() === 3) {
+      this.broadCastRoom('GAME_OVER', deskId, game.getResult());
+      this.updatePosStatus(deskId, 0, 1);
+      this.updatePosStatus(deskId, 1, 1);
+      this.updatePosStatus(deskId, 2, 1);
+      game.init();
+      this.clearBotTimer(deskId);
+      this.rePrepareBots(deskId);
+      return;
+    }
+    this.scheduleBotAction(deskId);
   },
   init() {
     // socket.io middleware: verify JWT token if provided during handshake
@@ -275,8 +438,17 @@ const proto = {
           return;
         }
         const { deskId, posId } = data;
-        //检查该座位是否是空闲状态
-        if (this.isEmptyPos(deskId, posId)) {
+        const desk = this.getDesk(deskId);
+        const pos = desk && this.getPosition(desk, posId);
+        const game = this.gameDatas[deskId];
+        const inProgress = !!(game && game.getStatus && game.getStatus() > 0 && game.getStatus() < 3);
+        const canTake = pos && (pos.state === 0 || (pos.isBot && !inProgress));
+        if (canTake) {
+          if (pos.isBot) {
+            const oldName = pos.userName;
+            this.removeBot(deskId, posId);
+            this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId, msg: `[${oldName}] 拱手让座`, id: guid(), time: time() });
+          }
           console.log('有客户端进入房间，桌号：%s，座位：%s，时间： %s', deskId, posId, time());
           //更新座位状态为占用
           this.updatePosStatus(deskId, posId, 1, this.getUserName(socket));
@@ -358,6 +530,13 @@ const proto = {
 
         //推送一条无关紧要的消息
         this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId, msg: `玩家[${this.getUserName(socket)}]退出房间`, id: guid(), time: time() })
+
+        // 若该桌已无真人，则清退所有 AI、清掉计时器、重置 game
+        if (!this.hasHumanAtDesk(deskId)) {
+          this.removeAllBots(deskId);
+          this.clearBotTimer(deskId);
+          if (this.gameDatas[deskId]) this.gameDatas[deskId].init();
+        }
       });
 
       socket.on('PREPARE', data => {
@@ -404,6 +583,7 @@ const proto = {
           const ctxScore = game.getContextScore();
           const calledScores = game.getCalledScores();
           this.broadCastRoom('CTX_USER_CHANGE', deskId, { ctxPos, ctxScore, calledScores, timeout: 15 });
+          this.scheduleBotAction(deskId);
         }
         if (status == 2) {
           const topCards = game.getTopCards();
@@ -421,6 +601,7 @@ const proto = {
             timeout: 30,
             isPass: false,
           })
+          this.scheduleBotAction(deskId);
         }
         if (status == 4) {
           this.broadCastRoom('MESSAGE', deskId, { msg: '没有玩家叫分，重新发牌' });
@@ -464,6 +645,10 @@ const proto = {
               this.updatePosStatus(deskId, 1, 1)
               this.updatePosStatus(deskId, 2, 1)
               game.init();
+              this.clearBotTimer(deskId);
+              this.rePrepareBots(deskId);
+            } else {
+              this.scheduleBotAction(deskId);
             }
 
             if (game.getStatus() === 5) {
@@ -526,6 +711,13 @@ const proto = {
           //推送一条无关紧要的消息
           this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId, msg: `玩家[${userName}]退出房间`, id: guid(), time: time() })
           console.log('有客户端退出房间，桌号：%s，座位：%s，时间：', deskId, posId, time());
+
+          // 若该桌已无真人，则清退所有 AI
+          if (!this.hasHumanAtDesk(deskId)) {
+            this.removeAllBots(deskId);
+            this.clearBotTimer(deskId);
+            if (this.gameDatas[deskId]) this.gameDatas[deskId].init();
+          }
         }
 
         console.log('有客户端断开了连接 %s', time());
@@ -597,6 +789,50 @@ const proto = {
         socket.emit('UNSITDOWN_SUCCESS', this.desks);
         const userName = this.getUserName(socket) || '观众';
         this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId: 'spec', msg: `观众[${userName}]离开房间`, id: guid(), time: time() }, socket);
+      });
+
+      // 召唤 AI 对手：把所有空位填满 AI
+      socket.on('ADD_BOTS', () => {
+        const client = this.getClient(socket);
+        if (!client || !client.deskId || client.posId === 'spec') {
+          socket.emit('USER_MESSAGE', { type: 'SYS', posId: '', msg: '请先入座再召唤 AI', id: guid(), time: time() });
+          return;
+        }
+        const deskId = client.deskId;
+        const desk = this.getDesk(deskId);
+        if (!desk) return;
+        const game = this.gameDatas[deskId];
+        if (game && game.getStatus && game.getStatus() > 0 && game.getStatus() < 3) {
+          socket.emit('USER_MESSAGE', { type: 'SYS', posId: client.posId, msg: '游戏中，无法召唤 AI', id: guid(), time: time() });
+          return;
+        }
+        let added = 0;
+        desk.positions.forEach(p => {
+          if (p.state === 0) { this.seatBot(deskId, p.posId); added++; }
+        });
+        if (!added) {
+          socket.emit('USER_MESSAGE', { type: 'SYS', posId: client.posId, msg: '已无空位，无法召唤 AI', id: guid(), time: time() });
+          return;
+        }
+        this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId: client.posId, msg: 'AI 对手已落座', id: guid(), time: time() });
+        if (this.checkPrepareAll(deskId)) {
+          this.startGame(deskId);
+        }
+      });
+
+      // 请走 AI（回到等待真人模式）
+      socket.on('REMOVE_BOTS', () => {
+        const client = this.getClient(socket);
+        if (!client || !client.deskId || client.posId === 'spec') return;
+        const deskId = client.deskId;
+        const game = this.gameDatas[deskId];
+        if (game && game.getStatus && game.getStatus() > 0 && game.getStatus() < 3) {
+          socket.emit('USER_MESSAGE', { type: 'SYS', posId: client.posId, msg: '游戏中，无法请走 AI', id: guid(), time: time() });
+          return;
+        }
+        this.removeAllBots(deskId);
+        this.clearBotTimer(deskId);
+        this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId: client.posId, msg: 'AI 已离席，等待真人入局', id: guid(), time: time() });
       });
 
 
