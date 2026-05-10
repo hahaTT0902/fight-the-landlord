@@ -8,6 +8,28 @@ app.get('/', function (req, res) {
 });
 const Game = require('./game.js');
 const AISuggest = require('./static/js/ai-suggest.js').AISuggest;
+const db = require('./db.js');
+
+// 底分（每分对应多少积分）。可通过环境变量调整。
+const SCORE_BASE = Number(process.env.SCORE_BASE || 1);
+
+// HTTP：查询自己积分（需 ?token=JWT）
+app.get('/api/score/me', (req, res) => {
+  const token = req.query.token || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token) return res.status(401).json({ error: 'no token' });
+  try {
+    const jwt = require('jsonwebtoken');
+    const payload = jwt.verify(token, proto.JWT_SECRET);
+    db.getUserScore(payload.uid).then(row => res.json(row || {}));
+  } catch (e) {
+    return res.status(401).json({ error: 'invalid token' });
+  }
+});
+// HTTP：积分榜
+app.get('/api/score/top', (req, res) => {
+  const limit = Number(req.query.limit || 20);
+  db.getTopScores(limit).then(rows => res.json(rows || []));
+});
 const BOT_NAMES = ['玉狐', '青龙', '白鹭', '墨鸢', '朱雀', '碧波', '苍髯'];
 function createDeskList(n) {
   n = n || 50;
@@ -147,7 +169,7 @@ const proto = {
     }
   },
   addClient(socket, data) {
-    this.clients.push({ userName: data.userName, socket: socket, deskId: '', posId: '' });
+    this.clients.push({ userName: data.userName, uid: data.uid || 0, socket: socket, deskId: '', posId: '' });
   },
   getClient(socket) {
     for (let i = 0, len = this.clients.length; i < len; i++) {
@@ -256,6 +278,33 @@ const proto = {
       this.startGame(deskId);
     }
   },
+  // 根据对局结果为带 uid 的真人玩家写入积分
+  recordResultToDb(deskId, result) {
+    if (!result || !db.isReady()) return;
+    const desk = this.getDesk(deskId);
+    if (!desk) return;
+    // 判断地主 posId： winner/loser 中只含 1 人的那边
+    const landlordPosId = result.winner.length === 1 ? result.winner[0] : result.loser[0];
+    const base = (Number(result.score) || 1) * (Number(result.ratio) || 1) * SCORE_BASE;
+    [0, 1, 2].forEach(posId => {
+      // 找到该座位的真人客户端
+      const client = this.clients.find(c => c.deskId === deskId && c.posId === posId);
+      if (!client || !client.uid) return; // 未登录 / 机器人 / 观战 跳过
+      const isLandlord = posId === landlordPosId;
+      const win = result.winner.includes(posId);
+      // 地主赢：+2*base；地主输：-2*base；农民赢：+base；农民输：-base
+      const unit = isLandlord ? 2 : 1;
+      const delta = (win ? 1 : -1) * unit * base;
+      db.recordPlayer({
+        uid: client.uid,
+        username: client.userName,
+        delta,
+        win,
+        isLandlord,
+      }).then(() => db.getUserScore(client.uid))
+        .then(row => { if (row) { try { client.socket.emit('MY_SCORE', row); } catch (e) {} } });
+    });
+  },
   clearBotTimer(deskId) {
     if (this.botTimers[deskId]) { clearTimeout(this.botTimers[deskId]); this.botTimers[deskId] = null; }
   },
@@ -353,7 +402,9 @@ const proto = {
       posId: game.getContextPosId(), timeout: 15, isPass
     });
     if (game.getStatus() === 3) {
-      this.broadCastRoom('GAME_OVER', deskId, game.getResult());
+      const result = game.getResult();
+      this.broadCastRoom('GAME_OVER', deskId, result);
+      this.recordResultToDb(deskId, result);
       this.updatePosStatus(deskId, 0, 1);
       this.updatePosStatus(deskId, 1, 1);
       this.updatePosStatus(deskId, 2, 1);
@@ -385,9 +436,11 @@ const proto = {
       // if socket was authenticated via token, auto-register client
       if (socket.user) {
         try {
-          this.addClient(socket, { userName: socket.user.username });
+          this.addClient(socket, { userName: socket.user.username, uid: socket.user.uid });
           socket.emit('LOGIN_SUCCESS', this.desks);
-          console.log('已通过 token 自动登录用户：%s', socket.user.username);
+          console.log('已通过 token 自动登录用户：%s (uid=%s)', socket.user.username, socket.user.uid);
+          // 推送一次该用户的积分
+          db.getUserScore(socket.user.uid).then(row => { if (row) socket.emit('MY_SCORE', row); });
         } catch (e) {
           console.error('自动登录出错', e);
         }
@@ -640,7 +693,9 @@ const proto = {
             })
             socket.emit('PLAY_CARD_SUCCESS', data)
             if (game.getStatus() === 3) {
-              this.broadCastRoom('GAME_OVER', deskId, game.getResult())
+              const result = game.getResult();
+              this.broadCastRoom('GAME_OVER', deskId, result)
+              this.recordResultToDb(deskId, result);
               this.updatePosStatus(deskId, 0, 1)
               this.updatePosStatus(deskId, 1, 1)
               this.updatePosStatus(deskId, 2, 1)
@@ -847,4 +902,4 @@ const proto = {
 }
 Object.assign(GameServer.prototype, proto);
 const gameServer = new GameServer(8002);
-gameServer.init();
+db.init().finally(() => gameServer.init());
