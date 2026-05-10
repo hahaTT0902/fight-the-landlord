@@ -1,7 +1,7 @@
 <?php
-// 调试期开错误显示（上线后可以注释这两行）
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
+// 上线后调试可关掉这两行
+// error_reporting(E_ALL);
+// ini_set('display_errors', '1');
 
 use Firebase\JWT\JWT;
 /**
@@ -105,6 +105,7 @@ if (!$SSO_SECRET) {
 
 // ====== 未登录则去 Discuz 登录页 ======
 $uid = intval($_G['uid']);
+
 if (!$uid) {
     // 防循环：如果已经从登录页回来了还没拿到 uid，直接报错而不是再跳
     // 注意：参数名不能以 _a / __ 开头，会被 Discuz 的 _init_input 安全过滤 unset

@@ -1,7 +1,11 @@
 const express = require('express'),
   app = express(),
   http = require('http').Server(app),
-  io = require('socket.io')(http);
+  io = require('socket.io')(http, {
+    // CF 橙云代理下，单 WS 连接 100 秒无流量会被切断，缩短心跳避免被切
+    pingInterval: 25000,
+    pingTimeout: 20000,
+  });
 app.use(express.static(`${__dirname}/static`));
 app.get('/', function (req, res) {
   res.sendFile(`${__dirname}/index.html`);
