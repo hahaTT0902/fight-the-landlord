@@ -105,7 +105,8 @@ $uid = intval($_G['uid']);
 if (!$uid) {
     $self = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
         . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-    $loginUrl = $discuz->var['siteurl'] . 'member.php?mod=logging&action=login&referer=' . rawurlencode($self);
+    // 用站点根的绝对路径，避免落到 /discuz-sso/member.php
+    $loginUrl = '/member.php?mod=logging&action=login&referer=' . rawurlencode($self);
     header('Location: ' . $loginUrl);
     exit;
 }
