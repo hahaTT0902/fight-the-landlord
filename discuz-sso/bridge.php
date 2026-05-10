@@ -34,6 +34,26 @@ $ALLOW_HOSTS = [
 // JWT 有效期（秒）
 $JWT_TTL = 86400;
 
+// ====== 先取 redirect 并校验（必须在 Discuz init 之前，Discuz 会对 $_GET 做 addslashes） ======
+$redirect = isset($_GET['redirect']) ? (string)$_GET['redirect'] : '';
+$redirect = stripslashes($redirect); // 防 magic_quotes / Discuz 转义
+if (!$redirect) {
+    http_response_code(400);
+    echo 'missing redirect';
+    exit;
+}
+$parts = parse_url($redirect);
+if (empty($parts['host']) || !in_array(strtolower($parts['host']), array_map('strtolower', $ALLOW_HOSTS), true)) {
+    http_response_code(400);
+    echo 'redirect host not allowed';
+    exit;
+}
+if (!isset($parts['scheme']) || !in_array($parts['scheme'], ['http', 'https'], true)) {
+    http_response_code(400);
+    echo 'invalid scheme';
+    exit;
+}
+
 // ====== 引导 Discuz ======
 define('CURSCRIPT', 'index');
 $discuz_root = dirname(__DIR__);
@@ -77,25 +97,6 @@ $SSO_SECRET = defined('DISCUZ_SSO_SECRET') ? DISCUZ_SSO_SECRET : (getenv('JWT_SE
 if (!$SSO_SECRET) {
     http_response_code(500);
     echo 'DISCUZ_SSO_SECRET not set';
-    exit;
-}
-
-// ====== 校验 redirect ======
-$redirect = isset($_GET['redirect']) ? $_GET['redirect'] : '';
-if (!$redirect) {
-    http_response_code(400);
-    echo 'missing redirect';
-    exit;
-}
-$parts = parse_url($redirect);
-if (empty($parts['host']) || !in_array(strtolower($parts['host']), array_map('strtolower', $ALLOW_HOSTS), true)) {
-    http_response_code(400);
-    echo 'redirect host not allowed';
-    exit;
-}
-if (!isset($parts['scheme']) || !in_array($parts['scheme'], ['http', 'https'], true)) {
-    http_response_code(400);
-    echo 'invalid scheme';
     exit;
 }
 
