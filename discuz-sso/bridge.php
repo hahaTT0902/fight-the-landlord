@@ -107,7 +107,8 @@ if (!$SSO_SECRET) {
 $uid = intval($_G['uid']);
 if (!$uid) {
     // 防循环：如果已经从登录页回来了还没拿到 uid，直接报错而不是再跳
-    if (isset($_GET['_after_login'])) {
+    // 注意：参数名不能以 _a / __ 开头，会被 Discuz 的 _init_input 安全过滤 unset
+    if (isset($_GET['ssoback'])) {
         http_response_code(500);
         echo 'SSO loop: Discuz login succeeded but $_G[uid] is still 0 in bridge.php. ';
         echo 'Likely cookie path/domain mismatch. ';
@@ -125,7 +126,7 @@ if (!$uid) {
     );
     $self = ($isHttps ? 'https' : 'http')
         . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']
-        . (strpos($_SERVER['REQUEST_URI'], '?') === false ? '?' : '&') . '_after_login=1';
+        . (strpos($_SERVER['REQUEST_URI'], '?') === false ? '?' : '&') . 'ssoback=1';
     // 用站点根的绝对路径，避免落到 /discuz-sso/member.php
     $loginUrl = '/member.php?mod=logging&action=login&referer=' . rawurlencode($self);
     header('Location: ' . $loginUrl);
