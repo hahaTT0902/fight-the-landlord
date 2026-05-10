@@ -37,14 +37,33 @@ $discuz = C::app();
 $discuz->init();
 
 // ====== 载入 PHP-JWT ======
+// \u4f18\u5148 composer autoload\uff1b\u5982\u679c\u62ff\u4e0d\u5230\u5219\u9000\u5316\u5230\u76f4\u63a5 require \u6e90\u6587\u4ef6\u3002
 $autoloads = [
     $discuz_root . '/vendor/autoload.php',
     __DIR__ . '/vendor/autoload.php',
+    __DIR__ . '/../vendor/autoload.php',
 ];
 foreach ($autoloads as $f) { if (file_exists($f)) { require_once $f; break; } }
 if (!class_exists('Firebase\\JWT\\JWT')) {
+    $candidates = [
+        $discuz_root . '/vendor/firebase/php-jwt/src/',
+        __DIR__ . '/vendor/firebase/php-jwt/src/',
+        __DIR__ . '/../vendor/firebase/php-jwt/src/',
+    ];
+    foreach ($candidates as $base) {
+        if (file_exists($base . 'JWT.php')) {
+            foreach (['JWT.php', 'Key.php', 'BeforeValidException.php',
+                      'ExpiredException.php', 'SignatureInvalidException.php'] as $f) {
+                if (file_exists($base . $f)) require_once $base . $f;
+            }
+            break;
+        }
+    }
+}
+if (!class_exists('Firebase\\JWT\\JWT')) {
     http_response_code(500);
     echo 'php-jwt not installed (composer require firebase/php-jwt)';
+    echo "\nsearched:\n - " . $discuz_root . "/vendor/autoload.php\n - " . __DIR__ . "/vendor/autoload.php\n - " . $discuz_root . "/vendor/firebase/php-jwt/src/JWT.php\n";
     exit;
 }
 use Firebase\JWT\JWT;
