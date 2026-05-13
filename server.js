@@ -34,6 +34,22 @@ app.get('/api/score/top', (req, res) => {
   const limit = Number(req.query.limit || 20);
   db.getTopScores(limit).then(rows => res.json(rows || []));
 });
+
+// HTTP：SSO 密钥健康检查（仅返回指纹，不泄漏明文）
+// 对比论坛侧同样指纹即可确认两边是否一致
+app.get('/api/sso/health', (req, res) => {
+  const crypto = require('crypto');
+  const s = proto.JWT_SECRET || '';
+  const isDefault = (s === 'change_this_in_production');
+  const fp = s ? crypto.createHash('sha256').update(s).digest('hex').slice(0, 16) : '';
+  res.json({
+    hasSecret: !!s && !isDefault,
+    length: s.length,
+    fingerprint: fp,
+    source: process.env.JWT_SECRET ? 'env' : (require('fs').existsSync(require('path').join(__dirname, 'sso-secret.txt')) ? 'file' : 'default'),
+    warning: isDefault ? 'JWT_SECRET 未配置，使用占位串' : null
+  });
+});
 const BOT_NAMES = ['玉狐', '青龙', '白鹭', '墨鸢', '朱雀', '碧波', '苍髯'];
 function createDeskList(n) {
   n = n || 50;
@@ -78,7 +94,20 @@ function GameServer(port) {
 }
 const proto = {
   // JWT secret used to validate tokens issued by Discuz (or other auth provider)
-  JWT_SECRET: process.env.JWT_SECRET || 'change_this_in_production',
+  // 优先级：环境变量 JWT_SECRET > sso-secret.txt 文件内容 > 占位串
+  JWT_SECRET: (function () {
+    if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const f = path.join(__dirname, 'sso-secret.txt');
+      if (fs.existsSync(f)) {
+        const s = fs.readFileSync(f, 'utf8').trim();
+        if (s) return s;
+      }
+    } catch (e) {}
+    return 'change_this_in_production';
+  })(),
   broadCastHouse(event, data, socket) {
     socket = socket === undefined ? null : socket;
     this.clients.forEach((client, index) => {
