@@ -25,10 +25,15 @@
         <template v-if="isAutoLogin">
           <div class="auto-login">正在使用 ZWWX.CLUB 登录，请稍候…</div>
           <div class="row" style="margin-top:14px;text-align:center;">
-            <a href="javascript:;" @click="cancelAutoLogin" style="color:#888;font-size:12px;">迟迟无法进入？点此取消并改用其他方式</a>
+            <a href="javascript:;" @click="cancelAutoLogin()" style="color:#888;font-size:12px;">迟迟无法进入？点此取消并改用其他方式</a>
           </div>
         </template>
         <template v-else-if="!guestMode">
+          <div v-if="loginError" class="login-error" style="margin:8px 0 12px;padding:10px 12px;background:#3b1f1f;border:1px solid #8a3a3a;color:#ffb3b3;border-radius:6px;font-size:13px;line-height:1.5;text-align:left;">
+            <div style="font-weight:bold;margin-bottom:4px;">登录失败</div>
+            <div>{{loginError}}</div>
+            <div v-if="debugMode" style="margin-top:6px;color:#aaa;font-size:11px;word-break:break-all;">token 片段：{{tokenSnippet || '(无)'}}</div>
+          </div>
           <div class="login-form" style="display:flex;flex-direction:column;gap:12px;align-items:center;">
             <button @click="goDiscuzLogin">使用 ZWWX.CLUB 账号登录</button>
             <button class="btn-ghost" @click="guestMode = true">以访客身份进入</button>
@@ -365,6 +370,9 @@
           where: 0,//0登录界面 1大厅 2房间,
           isAutoLogin: false,
           guestMode: false,// 选择以访客身份进入
+          loginError: '',//登录错误持久横幅
+          debugMode: /[?&]debug=1\b/.test(location.search),//?debug=1 显示调试信息
+          tokenSnippet: '',//最近一次握手用的 token 前后段（仅在 debug 显示）
           // 跨域 SSO 桥接入口：论坛域名上的 bridge.php
           discuzLoginUrl: 'https://zwwx.club/discuz-sso/bridge.php',
           // 我的战绩
@@ -448,10 +456,14 @@
           var _token = _getDiscuzToken();
           if (_token) {
             this.isAutoLogin = true;
+            // debug 模式记录 token 片段
+            this.tokenSnippet = _token.length > 24 ? (_token.slice(0, 12) + '...' + _token.slice(-8)) : _token;
+            // 控制台输出便于排查
+            console.log('[login] token detected, length=' + _token.length + ', snippet=' + this.tokenSnippet);
             // fallback to manual login if token doesn't produce LOGIN_SUCCESS quickly
             this._autoLoginTimer = setTimeout(function () {
               if (this.where === 0 && this.isAutoLogin) {
-                this.cancelAutoLogin('登录超时，请重试或改用其他方式');
+                this.cancelAutoLogin('登录超时（5 秒内服务器无响应）。可能原因：服务端 JWT_SECRET 与论坛侧不一致 / token 已过期 / 服务端未安装 jsonwebtoken。请查看服务端日志。');
               }
             }.bind(this), 5000);
           }
@@ -904,7 +916,11 @@
           try { localStorage.removeItem('discuz_token'); } catch (e) {}
           // 清掉 cookie 兜底
           try { document.cookie = 'discuz_token=; path=/; max-age=0'; } catch (e) {}
-          if (msg) layer.msg(msg, { time: 2500 });
+          if (msg) {
+            this.loginError = msg;
+            // 同时打到控制台便于复制
+            console.error('[login]', msg);
+          }
         },
         login: function () {
           if (!this.posState.self.name) {
