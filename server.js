@@ -828,11 +828,36 @@ const proto = {
         }
         this.updateClientState(socket, deskId, 'spec');
         const game = this.gameDatas[deskId];
-        const gameInProgress = !!(game && game.getStatus && game.getStatus() > 0 && game.getStatus() < 3);
+        const status = game && game.getStatus ? game.getStatus() : 0;
+        const gameInProgress = status >= 1 && status < 3;
+        let snapshot = null;
+        if (gameInProgress) {
+          // 把当前对局快照（叫分中或出牌中）发给观战者，便于无缝接入
+          const cards = (game.getCards && game.getCards()) || [];
+          // 仅把座位 0/1/2 的手牌打包（id=3 是底牌）
+          const handGroups = cards.filter(g => g.id !== 3).map(g => ({
+            id: g.id,
+            cards: g.cards.map(c => ({ value: c.value, type: c.type }))
+          }));
+          snapshot = {
+            status,
+            cards: handGroups,
+            callScores: game.getCalledScores ? Object.assign({}, game.getCalledScores()) : {},
+            ctxPosId: game.getContextPosId ? game.getContextPosId() : '',
+            ctxScore: game.getContextScore ? game.getContextScore() : [],
+            lastCardInfo: game.lastCardInfo ? Object.assign({}, game.lastCardInfo) : null,
+          };
+          if (status >= 2) {
+            snapshot.dizhuPosId = game.getDiZhuPosId ? game.getDiZhuPosId() : '';
+            const top = (game.getTopCards && game.getTopCards()) || [];
+            snapshot.topCards = top.map(c => ({ value: c.value, type: c.type }));
+          }
+        }
         socket.emit('SPECTATE_SUCCESS', {
           deskId,
           positions: desk.positions,
           gameInProgress,
+          snapshot,
         });
         const userName = this.getUserName(socket) || '观众';
         this.broadCastRoom('USER_MESSAGE', deskId, { type: 'SYS', posId: 'spec', msg: `观众[${userName}]进入房间`, id: guid(), time: time() }, socket);

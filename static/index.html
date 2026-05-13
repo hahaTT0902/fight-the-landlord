@@ -24,6 +24,9 @@
         </div>
         <template v-if="isAutoLogin">
           <div class="auto-login">正在使用 ZWWX.CLUB 登录，请稍候…</div>
+          <div class="row" style="margin-top:14px;text-align:center;">
+            <a href="javascript:;" @click="cancelAutoLogin" style="color:#888;font-size:12px;">迟迟无法进入？点此取消并改用其他方式</a>
+          </div>
         </template>
         <template v-else-if="!guestMode">
           <div class="login-form" style="display:flex;flex-direction:column;gap:12px;align-items:center;">
@@ -109,8 +112,13 @@
 
         <!-- 自己的牌列表 -->
         <div class="card-group card-group-self" :style="{width:posState.self.cards.length * 20 + 70 + 'px'}" v-if="!isSpec && !(roomState.state === 3 && posState.self.state === 2)">
-          <div @dragStart="dragStart($event)" @click="selectCard(card)" v-for="(card,index) in posState.self.cards"
-            class="card" :class="'card-' + card.value + '-' + card.type" :style="{left:index * 20 + 'px',top:card.selected ? '-20px' : 0}">
+          <div @dragstart.prevent
+            @mousedown.prevent="dragSelectStart(card, $event)"
+            @mouseenter="dragSelectOver(card)"
+            @touchstart.prevent="dragSelectStart(card, $event)"
+            @touchmove.prevent="dragSelectTouchMove($event)"
+            v-for="(card,index) in posState.self.cards"
+            class="card" :class="'card-' + card.value + '-' + card.type" :data-card-key="card.value + '_' + card.type" :style="{left:index * 20 + 'px',top:card.selected ? '-20px' : 0}">
           </div>
           <!-- 自己的头像 -->
           <div class="player-wrapper player-self-ctx">
@@ -431,6 +439,11 @@
             self.playCards();
           };
 
+          // 拖拽多选：松开鼠标/手指时结束本次选择
+          window.addEventListener('mouseup', function () { self.dragSelectEnd(); });
+          window.addEventListener('touchend', function () { self.dragSelectEnd(); });
+          window.addEventListener('touchcancel', function () { self.dragSelectEnd(); });
+
           // if Discuz token exists, mark as auto-login and the server will validate it
           var _token = _getDiscuzToken();
           if (_token) {
@@ -528,6 +541,10 @@
             this.$nextTick(function () {
               if (this.$refs.msgSelect) this.$refs.msgSelect.value = '';
             });
+            // 牌局已在进行中：套用快照恢复牌桌
+            if (data.gameInProgress && data.snapshot) {
+              this.applySpectateSnapshot(data.snapshot);
+            }
             layer.closeAll();
             layer.msg('已进入观战', { time: 1200 });
           }.bind(this));
@@ -1107,6 +1124,49 @@
         dragStart: function (e) {
           e.preventDefault();
         },
+        // 鼠标按下：开始拖拽多选；首张牌即刻翻面，并决定本次拖拽是"选中"还是"取消"
+        dragSelectStart: function (card, e) {
+          if (this.isSpec) return;
+          var target = !card.selected;
+          this._dragSelectMode = target;
+          this._dragSelectVisited = Object.create(null);
+          this._dragSelectVisited[card.value + '_' + card.type] = true;
+          card.selected = target;
+          if (window.FX) FX.beep('chip');
+        },
+        // 鼠标进入：若在拖拽中且尚未访问过此牌，则按当前 mode 设置
+        dragSelectOver: function (card) {
+          if (this.isSpec) return;
+          if (this._dragSelectMode == null) return;
+          var key = card.value + '_' + card.type;
+          if (this._dragSelectVisited[key]) return;
+          this._dragSelectVisited[key] = true;
+          if (card.selected !== this._dragSelectMode) {
+            card.selected = this._dragSelectMode;
+            if (window.FX) FX.beep('chip');
+          }
+        },
+        // 触屏：移动手指扫过多张牌
+        dragSelectTouchMove: function (e) {
+          if (this.isSpec) return;
+          if (this._dragSelectMode == null) return;
+          var t = e.touches && e.touches[0];
+          if (!t) return;
+          var el = document.elementFromPoint(t.clientX, t.clientY);
+          if (!el || !el.classList || !el.classList.contains('card')) return;
+          var key = el.getAttribute('data-card-key');
+          if (!key || this._dragSelectVisited[key]) return;
+          var parts = key.split('_');
+          var val = Number(parts[0]), typ = Number(parts[1]);
+          var card = this.posState.self.cards.find(function (c) {
+            return c.value === val && c.type === typ;
+          });
+          if (card) this.dragSelectOver(card);
+        },
+        dragSelectEnd: function () {
+          this._dragSelectMode = null;
+          this._dragSelectVisited = null;
+        },
         selectCard: function (card) {
           if (this.isSpec) return;
           card.selected = !card.selected;
@@ -1121,6 +1181,42 @@
             var redirection = this.getDirectionByPosId(posId);
             this.posState[redirection].cards = cardGroup.cards;
           }.bind(this));
+        },
+        applySpectateSnapshot: function (snap) {
+          if (!snap) return;
+          // 1) 手牌（仅渲染左/右位置，self 在观战模式不显示）
+          if (snap.cards) this.initCards(snap.cards);
+          // 2) 叫分历史
+          if (snap.callScores) {
+            Object.keys(snap.callScores).forEach(function (pid) {
+              var direct = this.getDirectionByPosId(Number(pid));
+              if (direct && this.posState[direct]) {
+                var s = snap.callScores[pid];
+                this.posState[direct].callScore = (s == null || s < 0) ? -1 : s;
+              }
+            }.bind(this));
+          }
+          // 3) 当前回合 & 状态
+          this.roomState.state = snap.status;
+          if (snap.ctxPosId !== '' && snap.ctxPosId != null) {
+            this.roomState.ctxPos = this.getDirectionByPosId(snap.ctxPosId);
+          }
+          if (snap.ctxScore) this.roomState.ctxScore = snap.ctxScore;
+          // 4) 地主已定 → 露底牌、标记地主
+          if (snap.status >= 2 && snap.dizhuPosId != null && snap.dizhuPosId !== '') {
+            var ddir = this.getDirectionByPosId(snap.dizhuPosId);
+            if (ddir && this.posState[ddir]) this.posState[ddir].isDizhu = true;
+            this.posState.top.cards = (snap.topCards || []).slice(0);
+          }
+          // 5) 上家牌信息（保证后续 CTX_PLAY_CHANGE 跟牌逻辑正确）
+          if (snap.lastCardInfo) {
+            this.roomState.ctxCard.len = snap.lastCardInfo.len || 0;
+            this.roomState.ctxCard.key = snap.lastCardInfo.key || '';
+            this.roomState.ctxCard.type = snap.lastCardInfo.type || '';
+            if (snap.lastCardInfo.posId !== '' && snap.lastCardInfo.posId != null) {
+              this.roomState.ctxCard.ctxPos = this.getDirectionByPosId(snap.lastCardInfo.posId);
+            }
+          }
         },
 
         sendMessage: function (e) {
