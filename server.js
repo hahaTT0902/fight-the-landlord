@@ -6,6 +6,41 @@ const express = require('express'),
     pingInterval: 25000,
     pingTimeout: 20000,
   });
+
+// ========== 配置文件（推荐方式）==========
+// 在项目根目录创建 config.json（已在 .gitignore），格式：
+// {
+//   "PORT": 8002,
+//   "JWT_SECRET": "与论坛 DISCUZ_SSO_SECRET 完全一致的字符串",
+//   "DB_HOST": "127.0.0.1",
+//   "DB_PORT": 3306,
+//   "DB_USER": "zwwx_dz",
+//   "DB_PASSWORD": "数据库密码",
+//   "DB_NAME": "zwwx_discuz",
+//   "DB_TABLE_PREFIX": "pre_",
+//   "SCORE_BASE": 1
+// }
+// 读取顺序：环境变量 > config.json > 默认值；并把 config.json 中的值塞回 process.env，
+// 使下游模块（db.js 等）也能用 process.env.* 读到。
+(function loadConfig() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const f = path.join(__dirname, 'config.json');
+    if (!fs.existsSync(f)) return;
+    const cfg = JSON.parse(fs.readFileSync(f, 'utf8'));
+    Object.keys(cfg).forEach(function (k) {
+      if (cfg[k] === null || cfg[k] === undefined) return;
+      // 环境变量优先，已设的不覆盖
+      if (process.env[k] !== undefined && process.env[k] !== '') return;
+      process.env[k] = String(cfg[k]);
+    });
+    console.log('[config] 已加载 config.json');
+  } catch (e) {
+    console.error('[config] config.json 解析失败：', e && e.message);
+  }
+})();
+
 app.use(express.static(`${__dirname}/static`));
 app.get('/', function (req, res) {
   res.sendFile(`${__dirname}/index.html`);
@@ -992,5 +1027,5 @@ const proto = {
   }
 }
 Object.assign(GameServer.prototype, proto);
-const gameServer = new GameServer(8002);
+const gameServer = new GameServer(Number(process.env.PORT) || 8002);
 db.init().finally(() => gameServer.init());

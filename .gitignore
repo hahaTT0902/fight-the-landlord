@@ -1,1 +1,5 @@
 node_modules/
+# 本地配置（含密钥与数据库密码），不要提交
+config.json
+sso-secret.txt
+.env
