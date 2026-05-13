@@ -830,20 +830,29 @@
             }).catch(function () {});
           } catch (e) {}
           var html = '<div id="stats-panel" style="padding:16px 18px;min-width:340px;max-width:90vw;font-family:inherit;">';
-          if (self.myScore && self.myScore.uid) {
-            var s = self.myScore;
+          if (self.myUser && self.myUser.uid) {
+            // 已登录：优先用真实积分，缺数据则只显示账号信息
+            var s = self.myScore || {};
             var games = s.games || 0;
             var winRate = games ? Math.round((s.wins || 0) * 1000 / games) / 10 : 0;
             var lordRate = s.landlord_games ? Math.round((s.landlord_wins || 0) * 1000 / s.landlord_games) / 10 : 0;
-            html += '<div style="font-size:16px;font-weight:bold;margin-bottom:8px;">' + (s.username || '我') + ' · 战绩</div>';
-            html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
-              '<tr><td style="padding:4px 0;color:#888;">积分</td><td style="text-align:right;font-weight:bold;">' + (s.score | 0) + '</td></tr>' +
-              '<tr><td style="padding:4px 0;color:#888;">总局数</td><td style="text-align:right;">' + games + '</td></tr>' +
-              '<tr><td style="padding:4px 0;color:#888;">胜 / 负</td><td style="text-align:right;">' + (s.wins | 0) + ' / ' + (s.losses | 0) + '</td></tr>' +
-              '<tr><td style="padding:4px 0;color:#888;">胜率</td><td style="text-align:right;">' + winRate + '%</td></tr>' +
-              '<tr><td style="padding:4px 0;color:#888;">地主局数</td><td style="text-align:right;">' + (s.landlord_games | 0) + '</td></tr>' +
-              '<tr><td style="padding:4px 0;color:#888;">地主胜率</td><td style="text-align:right;">' + lordRate + '%</td></tr>' +
-              '</table>';
+            var nick = s.username || self.myUser.username || '我';
+            html += '<div style="font-size:16px;font-weight:bold;margin-bottom:8px;">' + nick + ' · 战绩</div>';
+            if (self.myScore && self.myScore.uid) {
+              html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+                '<tr><td style="padding:4px 0;color:#888;">积分</td><td style="text-align:right;font-weight:bold;">' + (s.score | 0) + '</td></tr>' +
+                '<tr><td style="padding:4px 0;color:#888;">总局数</td><td style="text-align:right;">' + games + '</td></tr>' +
+                '<tr><td style="padding:4px 0;color:#888;">胜 / 负</td><td style="text-align:right;">' + (s.wins | 0) + ' / ' + (s.losses | 0) + '</td></tr>' +
+                '<tr><td style="padding:4px 0;color:#888;">胜率</td><td style="text-align:right;">' + winRate + '%</td></tr>' +
+                '<tr><td style="padding:4px 0;color:#888;">地主局数</td><td style="text-align:right;">' + (s.landlord_games | 0) + '</td></tr>' +
+                '<tr><td style="padding:4px 0;color:#888;">地主胜率</td><td style="text-align:right;">' + lordRate + '%</td></tr>' +
+                '</table>';
+            } else {
+              html += '<div style="font-size:13px;color:#888;line-height:1.6;">' +
+                '已用 Discuz 账号登录（uid=' + self.myUser.uid + '），但尚未读取到积分记录。<br>' +
+                '完成一局对战后会自动生成。' +
+                '</div>';
+            }
           } else {
             html += '<div style="font-size:14px;color:#666;line-height:1.6;">' +
               '您当前为<strong>访客</strong>身份，不记录战绩。<br>' +
@@ -854,7 +863,7 @@
             '<div style="font-size:14px;font-weight:bold;margin-bottom:6px;">积分榜 TOP 20</div>' +
             '<div style="font-size:12px;color:#999;">加载中…</div>' +
             '</div>';
-          if (self.myScore && self.myScore.uid) {
+          if (self.myUser && self.myUser.uid) {
             html += '<div style="margin-top:14px;text-align:right;">' +
               '<a href="javascript:;" id="stats-logout" style="color:#888;font-size:12px;">退出登录</a>' +
               '</div>';
