@@ -128,10 +128,11 @@ async function getUserScore(uid) {
 async function getTopScores(limit = 20) {
   if (!isReady()) return [];
   try {
+    const n = Math.max(1, limit | 0);
     const [rows] = await pool.query(
       `SELECT uid, username, score, games, wins, losses
        FROM \`${TABLE}\` ORDER BY score DESC, wins DESC LIMIT ?`,
-      [Math.max(1, Math.min(100, limit | 0))]
+      [n]
     );
     return rows;
   } catch (err) {
