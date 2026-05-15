@@ -1,3 +1,11 @@
+// ========== 全局错误保护（防止单个异常崩溃整个进程）==========
+process.on('uncaughtException', function (err) {
+  console.error('[FATAL] uncaughtException:', err);
+});
+process.on('unhandledRejection', function (reason, promise) {
+  console.error('[FATAL] unhandledRejection:', reason);
+});
+
 const express = require('express'),
   app = express(),
   http = require('http').Server(app),
@@ -98,7 +106,7 @@ app.get('/api/score/me', (req, res) => {
   try {
     const jwt = require('jsonwebtoken');
     const payload = jwt.verify(token, proto.JWT_SECRET);
-    db.getUserScore(payload.uid).then(row => res.json(row || {}));
+    db.getUserScore(payload.uid).then(row => res.json(row || {})).catch(() => res.status(500).json({ error: 'db_error' }));
   } catch (e) {
     return res.status(401).json({ error: 'invalid token' });
   }
@@ -106,7 +114,7 @@ app.get('/api/score/me', (req, res) => {
 // HTTP：积分榜
 app.get('/api/score/top', (req, res) => {
   const limit = Number(req.query.limit || 20);
-  db.getTopScores(limit).then(rows => res.json(rows || []));
+  db.getTopScores(limit).then(rows => res.json(rows || [])).catch(() => res.json([]));
 });
 
 // HTTP：SSO 密钥健康检查（仅返回指纹，不泄漏明文）
@@ -416,7 +424,8 @@ const proto = {
         win,
         isLandlord,
       }).then(() => db.getUserScore(client.uid))
-        .then(row => { if (row) { try { client.socket.emit('MY_SCORE', row); } catch (e) {} } });
+        .then(row => { if (row) { try { client.socket.emit('MY_SCORE', row); } catch (e) {} } })
+        .catch(e => console.error('[db] recordResultToDb 链式异常:', e && e.message));
     });
   },
   clearBotTimer(deskId) {
@@ -587,7 +596,7 @@ const proto = {
           socket.emit('LOGIN_SUCCESS', this.desks);
           console.log('已通过 token 自动登录用户：%s (uid=%s)', socket.user.username, socket.user.uid);
           // 推送一次该用户的积分
-          db.getUserScore(socket.user.uid).then(row => { if (row) socket.emit('MY_SCORE', row); });
+          db.getUserScore(socket.user.uid).then(row => { if (row) socket.emit('MY_SCORE', row); }).catch(() => {});
         } catch (e) {
           console.error('自动登录出错', e);
         }
